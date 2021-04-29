@@ -173,7 +173,7 @@ export default function App() {
   const canvasInputRef = useRef(null);
   const canvasOutputRef = useRef(null);
   const [hoveredColor, setHoveredColor] = useState([255, 255, 255]);
-  const [selectedColor, setSelectedColor] = useState([255, 255, 255]);
+  const [selectedColor, setSelectedColor] = useState([30, 99, 151]);
   const [targetColor, setTargetColor] = useState([168, 6, 64]);
 
   useEffect(() => {
@@ -185,6 +185,7 @@ export default function App() {
     img.onload = function () {
       ctx.drawImage(img, 0, 0);
       img.style.display = "none";
+      setSelectedColor([30, 99, 151]);
     };
   }, []);
 
@@ -268,6 +269,7 @@ export default function App() {
       <canvas
         width={538}
         height={536}
+        style={{ cursor: "crosshair" }}
         ref={canvasInputRef}
         onMouseMove={(event) => setHoveredColor(getColorAtCursor(event))}
         onClick={(event) => {

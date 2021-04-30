@@ -85,6 +85,55 @@ function hslToRgb(h, s, l) {
   return [r * 255, g * 255, b * 255];
 }
 
+function rgbToLab(r, g, b) {
+  r /= 255;
+  g /= 255;
+  b /= 255;
+
+  r = (r > 0.04045) ? Math.pow((r + 0.055) / 1.055, 2.4) : r / 12.92;
+  g = (g > 0.04045) ? Math.pow((g + 0.055) / 1.055, 2.4) : g / 12.92;
+  b = (b > 0.04045) ? Math.pow((b + 0.055) / 1.055, 2.4) : b / 12.92;
+
+  let x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047;
+  let y = (r * 0.2126 + g * 0.7152 + b * 0.0722) / 1.00000;
+  let z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883;
+
+  x = (x > 0.008856) ? Math.pow(x, 1 / 3) : (7.787 * x) + 16 / 116;
+  y = (y > 0.008856) ? Math.pow(y, 1 / 3) : (7.787 * y) + 16 / 116;
+  z = (z > 0.008856) ? Math.pow(z, 1 / 3) : (7.787 * z) + 16 / 116;
+
+  return [
+    (116 * y) - 16,
+    500 * (x - y),
+    200 * (y - z)
+  ];
+}
+
+function labToRgb(cl, ca, cb) {
+  let y = (cl + 16) / 116;
+  let x = ca / 500 + y;
+  let z = y - cb / 200;
+  let [r, g, b] = [0, 0, 0];
+
+  x = 0.95047 * ((x * x * x > 0.008856) ? x * x * x : (x - 16 / 116) / 7.787);
+  y = 1.00000 * ((y * y * y > 0.008856) ? y * y * y : (y - 16 / 116) / 7.787);
+  z = 1.08883 * ((z * z * z > 0.008856) ? z * z * z : (z - 16 / 116) / 7.787);
+
+  r = x * 3.2406 + y * -1.5372 + z * -0.4986;
+  g = x * -0.9689 + y * 1.8758 + z * 0.0415;
+  b = x * 0.0557 + y * -0.2040 + z * 1.0570;
+
+  r = (r > 0.0031308) ? (1.055 * Math.pow(r, 1 / 2.4) - 0.055) : 12.92 * r;
+  g = (g > 0.0031308) ? (1.055 * Math.pow(g, 1 / 2.4) - 0.055) : 12.92 * g;
+  b = (b > 0.0031308) ? (1.055 * Math.pow(b, 1 / 2.4) - 0.055) : 12.92 * b;
+
+  return [
+    Math.round(Math.max(0, Math.min(1, r)) * 255),
+    Math.round(Math.max(0, Math.min(1, g)) * 255),
+    Math.round(Math.max(0, Math.min(1, b)) * 255)
+  ];
+}
+
 function colorToString(color) {
   if (!color) {
     return "gray";
@@ -175,6 +224,7 @@ export default function App() {
   const [hoveredColor, setHoveredColor] = useState([255, 255, 255]);
   const [selectedColor, setSelectedColor] = useState([30, 99, 151]);
   const [targetColor, setTargetColor] = useState([168, 6, 64]);
+  const [colorSpace, setColorSpace] = useState('hsl');
 
   useEffect(() => {
     var img = new Image();
@@ -190,8 +240,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    drawOutput(selectedColor, targetColor);
-  }, [selectedColor, targetColor]);
+    drawOutput(selectedColor, targetColor, colorSpace);
+  }, [selectedColor, targetColor, colorSpace]);
 
   function getColorAtCursor(event) {
     var canvasInput = canvasInputRef.current;
@@ -203,23 +253,35 @@ export default function App() {
     return [data[0], data[1], data[2]];
   }
 
-  function drawOutput(selectedColor, targetColor) {
+  function colorCorrection(selectedColor, targetColor, colorSpace) {
+    const cielab = colorSpace === 'cielab';
+    const hslStart = cielab ? rgbToLab(...selectedColor) : rgbToHsl(...selectedColor);
+    const hslEnd = cielab ? rgbToLab(...targetColor) : rgbToHsl(...targetColor);
+    return [
+      hslEnd[0] - hslStart[0],
+      hslEnd[1] - hslStart[1],
+      hslEnd[2] - hslStart[2]
+    ]
+  }
+
+  function applyCorrection(r, g, b, correction, colorSpace) {
+    const cielab = colorSpace === 'cielab';
+    const color = cielab ? rgbToLab(r, g, b) : rgbToHsl(r, g, b);
+    const corrected = [
+      color[0] + correction[0],
+      color[1] + correction[1],
+      color[2] + correction[2]
+    ]
+    return cielab ? labToRgb(...corrected) : hslToRgb(...corrected);
+  }
+
+  function drawOutput(selectedColor, targetColor, colorSpace) {
     var canvasInput = canvasInputRef.current;
     var ctxInput = canvasInput.getContext("2d");
     var canvasOutput = canvasOutputRef.current;
     var ctxOutput = canvasOutput.getContext("2d");
 
-    var hslStart = rgbToHsl(
-      selectedColor[0],
-      selectedColor[1],
-      selectedColor[2]
-    );
-    var hslEnd = rgbToHsl(targetColor[0], targetColor[1], targetColor[2]);
-    var hslCorrection = [
-      hslEnd[0] - hslStart[0],
-      hslEnd[1] - hslStart[1],
-      hslEnd[2] - hslStart[2]
-    ];
+    const correction = colorCorrection(selectedColor, targetColor, colorSpace);
 
     const imageData = ctxInput.getImageData(
       0,
@@ -235,15 +297,11 @@ export default function App() {
         continue;
       }
 
-      var hsl = rgbToHsl(data[i], data[i + 1], data[i + 2]);
-      var rgb = hslToRgb(
-        hsl[0] + hslCorrection[0],
-        hsl[1] + hslCorrection[1],
-        hsl[2] + hslCorrection[2]
-      );
-      data[i] = rgb[0]; // red
-      data[i + 1] = rgb[1]; // green
-      data[i + 2] = rgb[2]; // blue
+      const corrected = applyCorrection(data[i], data[i + 1], data[i + 2], correction, colorSpace);
+
+      data[i] = corrected[0]; // red
+      data[i + 1] = corrected[1]; // green
+      data[i + 2] = corrected[2]; // blue
     }
     ctxOutput.putImageData(imageData, 0, 0);
   }
@@ -265,6 +323,11 @@ export default function App() {
           color={selectedColor}
           onChange={(color) => setSelectedColor(color)}
         />
+        Color Space:
+        <select value={colorSpace} onChange={(event) => setColorSpace(event.target.value)}>
+          <option value="hsl">HSL</option>
+          <option value="cielab">CIELAB</option>
+        </select>
       </p>
       <canvas
         width={538}
